@@ -589,42 +589,48 @@ webidl.converters["RequestInit"] = webidl.createDictionaryConverter(
  * @param {Request} request
  * @returns {InnerRequest}
  */
-function toInnerRequest(request) {
-  const createFallback = (url, method, headers) => ({
-    methodInner: method,
-    get method() { return this.methodInner; },
-    set method(value) { this.methodInner = value; },
-    headerList: headers,
-    body: null,
-    redirectMode: "follow",
-    redirectCount: 0,
-    urlList: [() => url],
-    urlListProcessed: [url],
-    clientRid: null,
-    blobUrlEntry: null,
-    url() { return this.urlListProcessed[0]; },
-    currentUrl() { return this.urlListProcessed[0]; }
-  });
+ function toInnerRequest(request) {
+   const createFallback = (url, method, headers, body, redirectMode) => ({
+     methodInner: method,
+     get method() { return this.methodInner; },
+     set method(value) { this.methodInner = value; },
+     headerList: headers,
+     body: body,
+     redirectMode: redirectMode || "follow",
+     redirectCount: 0,
+     urlList: [() => url],
+     urlListProcessed: [url],
+     clientRid: null,
+     blobUrlEntry: typeof url === "string" && url.startsWith("blob:") ? blobFromObjectUrl(url) : null,
+     url() { return this.urlListProcessed[0]; },
+     currentUrl() { return this.urlListProcessed[0]; }
+   });
 
-  try {
-    // Try to access the _request symbol first
-    const innerRequest = request[_request];
-    if (innerRequest !== undefined) {
-      return innerRequest;
-    }
-  } catch {
-    // _request access failed, continue to fallback
-  }
+   try {
+     // Try to access the _request symbol first
+     const innerRequest = request[_request];
+     if (innerRequest !== undefined) {
+       return innerRequest;
+     }
+   } catch {
+     // _request access failed, continue to fallback
+   }
 
-  let headers = [];
+   let headers = [];
+   if (request.headers) {
+     for (const [key, value] of request.headers) {
+       headers.push([key.toLowerCase(), value]);
+     }
+   }
 
-  if (request.headers) {
-    for (const [key, value] of request.headers) {
-      headers.push([key.toLowerCase(), value]);
-    }
-  }
-  return createFallback(request.url, request.method, headers);
-}
+   return createFallback(
+     request.url,
+     request.method,
+     headers,
+     request.body,
+     request.redirect
+   );
+ }
 
 /**
  * @param {InnerRequest} inner
