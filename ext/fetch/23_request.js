@@ -107,6 +107,19 @@ function newInnerRequest(method, url, headerList, body, maybeBlob) {
   ) {
     blobUrlEntry = blobFromObjectUrl(url);
   }
+
+  // Initialize headerList immediately to ensure consistency
+  let initializedHeaderList = null;
+  if (typeof headerList === 'function') {
+    try {
+      initializedHeaderList = headerList();
+    } catch {
+      throw new TypeError("Cannot read headers: request closed");
+    }
+  } else {
+    initializedHeaderList = headerList || [];
+  }
+
   return {
     methodInner: method,
     get method() {
@@ -115,20 +128,7 @@ function newInnerRequest(method, url, headerList, body, maybeBlob) {
     set method(value) {
       this.methodInner = value;
     },
-    headerListInner: null,
-    get headerList() {
-      if (this.headerListInner === null) {
-        try {
-          this.headerListInner = headerList();
-        } catch {
-          throw new TypeError("Cannot read headers: request closed");
-        }
-      }
-      return this.headerListInner;
-    },
-    set headerList(value) {
-      this.headerListInner = value;
-    },
+    headerList: initializedHeaderList,
     body,
     redirectMode: "follow",
     redirectCount: 0,
@@ -168,7 +168,7 @@ function newInnerRequest(method, url, headerList, body, maybeBlob) {
  */
 function cloneInnerRequest(request, skipBody = false) {
   const headerList = ArrayPrototypeMap(
-    request.headerList,
+    request.headerList || [],
     (x) => [x[0], x[1]],
   );
 
@@ -590,7 +590,40 @@ webidl.converters["RequestInit"] = webidl.createDictionaryConverter(
  * @returns {InnerRequest}
  */
 function toInnerRequest(request) {
-  return request[_request];
+  const createFallback = (url, method, headers) => ({
+    methodInner: method,
+    get method() { return this.methodInner; },
+    set method(value) { this.methodInner = value; },
+    headerList: headers,
+    body: null,
+    redirectMode: "follow",
+    redirectCount: 0,
+    urlList: [() => url],
+    urlListProcessed: [url],
+    clientRid: null,
+    blobUrlEntry: null,
+    url() { return this.urlListProcessed[0]; },
+    currentUrl() { return this.urlListProcessed[0]; }
+  });
+
+  try {
+    // Try to access the _request symbol first
+    const innerRequest = request[_request];
+    if (innerRequest !== undefined) {
+      return innerRequest;
+    }
+  } catch {
+    // _request access failed, continue to fallback
+  }
+
+  let headers = [];
+
+  if (request.headers) {
+    for (const [key, value] of request.headers) {
+      headers.push([key.toLowerCase(), value]);
+    }
+  }
+  return createFallback(request.url, request.method, headers);
 }
 
 /**
